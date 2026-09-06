@@ -1,20 +1,26 @@
 """
 app.py
 ------
-Streamlitで動く「繰り返し解く！ Python3 基礎試験 Webテスト」のメイン画面です。
+Streamlitで動く「繰り返し解く！ Python3 エンジニア認定基礎試験 公式比率準拠
+Webテスト400問」のメイン画面です。
 
-このファイルは大きく4つの「画面(screen)」を、st.session_state["screen"] の
+このファイルは大きく5つの「画面(screen)」を、st.session_state["screen"] の
 値によって切り替える作りになっています。
-    "select" : 学習モードを選ぶ画面
-    "quiz"   : 実際に問題を解く画面
-    "result" : 採点結果を表示する画面
-    "review" : 全問の解説を見る画面（総復習リスト）
+    "select"         : 学習モードを選ぶ画面（トップ画面）
+    "chapter_select" : 章指定モードで、出題する章を選ぶ画面
+    "quiz"           : 実際に問題を解く画面
+    "result"         : 採点結果を表示する画面
+    "review"         : 全問の解説を見る画面（総復習リスト）
 
 Streamlitは「ボタンが押される」などの操作のたびに、このファイルの中身が
 上から下まで丸ごと再実行される、という特徴があります。そのため、
 「今どの画面を表示しているか」「今何問目か」といった情報は
 st.session_state（ブラウザのタブごとに保持される辞書のようなもの）に
 保存しておく必要があります。
+
+このアプリはスマホでの利用を主に想定しているため、Streamlit標準の見た目に
+加えて、CSS（見た目を調整するための言語）をコードの中に埋め込み、
+ボタンを大きく・タップしやすくするなどの調整を行っています。
 """
 
 # re: 問題文の中から ```python ... ``` の部分を検索するための正規表現ライブラリです。
@@ -43,21 +49,182 @@ PASSPHRASE = "python2026"
 # .resolve() は相対パスを絶対パスに変換し、.parent は「1つ上のフォルダ」を表します。
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "questions.json"
 
+# アプリの正式名称（認証画面・トップ画面で3行に分けて表示します）。
+APP_TITLE_LINES = [
+    "繰り返し解く！",
+    "Python3 エンジニア認定基礎試験",
+    "公式比率準拠 Webテスト400問",
+]
+# 問題を解いている最中など、画面のスペースを節約したい場面で使う略式名称です。
+APP_TITLE_SHORT = "Python3 基礎試験400"
+
 # 画面上に表示する、モードごとの日本語ラベルをまとめた辞書です。
 # キー(quiz_engine.MODE_EXAMなど)から、表示用の文字列を引けるようにしています。
+# このラベル文字列は、そのままモード選択ボタンの表示テキストとして使われます。
 MODE_LABELS = {
-    quiz_engine.MODE_EXAM: "① 本番想定モード（40問・60分カウントダウン）",
-    quiz_engine.MODE_SHORT: "② 短時間モード（10問・カウントアップ）",
-    quiz_engine.MODE_CHAPTER: "③ 章指定モード（指定した章から10問）",
-    quiz_engine.MODE_RETRY: "④ 間違い再挑戦（前回間違えた問題のみ）",
+    quiz_engine.MODE_EXAM: "① 本番想定モード\n40問・60分カウントダウン",
+    quiz_engine.MODE_SHORT: "② 短時間モード\n10問・カウントアップ",
+    quiz_engine.MODE_CHAPTER: "③ 章指定モード\n指定した章から10問",
+    quiz_engine.MODE_RETRY: "④ 間違い再挑戦\n前回間違えた問題のみ",
 }
 
+# 章指定モードの「章選択画面」に表示する、各章の簡単な説明文です。
+# キーは quiz_engine 側のデータと合わせて2桁の文字列("01"など)にしています。
+CHAPTER_DESCRIPTIONS = {
+    "01": "Pythonの特徴・対話モードの基本操作",
+    "02": "インタープリタの起動・終了とコマンドラインオプション",
+    "03": "数値・文字列・リストの基礎、簡単な繰り返し処理",
+    "04": "制御構文（if・for・match）と関数の定義",
+    "05": "データ構造（リスト操作・タプル・集合・辞書・内包表記）",
+    "06": "モジュールとパッケージ",
+    "07": "文字列フォーマットとファイル入出力",
+    "08": "エラーと例外処理",
+    "09": "クラスとオブジェクト指向プログラミング",
+    "10": "標準ライブラリ概観（前編）：ファイル操作・正規表現・テストなど",
+    "11": "標準ライブラリ概観（後編）：便利なツール集",
+    "12": "仮想環境とパッケージ管理（venv・pip）",
+    "13": "（出題範囲外）",
+    "14": "対話型インタープリタの便利な使い方（補完・ヒストリなど）",
+}
+# 出題範囲外のため、章選択画面でボタンを押せないようにする章番号です。
+EXCLUDED_CHAPTER_FOR_UI = "13"
 
-# 「@st.cache_data」はデコレータと呼ばれる書き方で、関数の直前に付けることで
-# 関数の動作に「キャッシュ機能」を追加できます。
-# Streamlitはボタン操作のたびにapp.py全体を再実行しますが、キャッシュを付けておくと
-# 「同じ引数で呼ばれた場合は、前回の結果を使い回す」ようになり、
-# 毎回JSONファイルを読み直す無駄な処理を防げます（動作が軽くなります）。
+# 選択肢の頭に付ける「A, B, C, D」の丸文字（Unicodeの丸囲み文字）です。
+# 普通のアルファベット "A" ではなく "Ⓐ" を使うことで、
+# HTMLを使わなくても選択肢がバッジ（円形のラベル）のように見えるようにしています。
+CHOICE_LETTERS = ["Ⓐ", "Ⓑ", "Ⓒ", "Ⓓ"]
+
+
+# ── 見た目(CSS)の設定 ───────────────────────────────────
+def inject_global_css() -> None:
+    """
+    アプリ全体で使う見た目調整用のCSSを、まとめてページに埋め込みます。
+
+    st.markdown(..., unsafe_allow_html=True) を使うと、Streamlitの部品だけでは
+    できない細かい見た目の調整（文字サイズを画面幅に応じて変える、ボタンの角を
+    丸くする、など）をCSSで行うことができます。
+
+    ポイント：st.container(key="任意の名前") のように key を指定すると、
+    そのコンテナを囲むdiv要素に "st-key-任意の名前" というCSSクラスが
+    自動的に付きます。これを利用して、「この部分のボタンだけ」に
+    スタイルを適用する、といった細かい指定を行っています。
+    """
+    st.markdown(
+        """
+        <style>
+        /* ボタン全体を、スマホでタップしやすい見た目に調整します
+           （角を丸く、文字を少し大きく、上下に余裕を持たせる）。 */
+        div[data-testid="stButton"] > button {
+            border-radius: 14px;
+            padding: 0.7em 1em;
+            font-size: 1.02rem;
+            min-height: 2.6em;
+        }
+
+        /* --- アプリ名（フルネーム・3行表示） --- */
+        .app-title-full {
+            text-align: center;
+            margin: 0.2rem 0 0.8rem 0;
+            line-height: 1.35;
+        }
+        .app-title-full div {
+            font-weight: 700;
+            color: #1f2937;
+            white-space: nowrap;
+            /* clamp(最小, 基準, 最大) を使うと、画面幅(vw)に応じて
+               文字サイズが自動で変わります。画面が狭いスマホでも
+               1行の途中で折り返さないようにするための調整です。 */
+            font-size: clamp(11px, 4vw, 17px);
+        }
+
+        /* --- アプリ名（略式・1行表示） --- */
+        .app-title-short {
+            text-align: center;
+            font-weight: 700;
+            font-size: 1.15rem;
+            color: #1f2937;
+            margin: 0.2rem 0 0.6rem 0;
+        }
+
+        /* --- 問題文と選択肢の間の区切り線 --- */
+        .question-divider {
+            border: none;
+            border-top: 1px solid #d9d9d9;
+            margin: 1rem 0 1.1rem 0;
+        }
+
+        /* --- モード選択ボタン／中央揃えの単独ボタン共通 ---
+           幅を最大420px（かつ画面幅の92%まで）に制限してから
+           左右の余白を自動(auto)にすることで、中央揃えかつ
+           横幅の揃ったボタンにしています。 */
+        [class*="st-key-mode_btn_"],
+        [class*="st-key-center_wrap_"] {
+            max-width: min(92vw, 420px);
+            margin: 0 auto 0.9rem auto;
+        }
+
+        /* --- 章選択ボタン（説明文があるので少し高さを持たせる） --- */
+        [class*="st-key-chapter_btn_"] div[data-testid="stButton"] > button {
+            text-align: left;
+            white-space: normal;
+            line-height: 1.4;
+        }
+        [class*="st-key-chapter_btn_"] {
+            margin-bottom: 0.7rem;
+        }
+
+        /* --- 選択肢カード（A/B/C/D） --- */
+        .st-key-choice_area div[data-testid="stButton"] {
+            margin-bottom: 1em;
+        }
+        .st-key-choice_area div[data-testid="stButton"] > button {
+            border-radius: 16px;
+            text-align: left;
+            white-space: normal;
+            line-height: 1.55;
+            padding: 0.9em 1.1em;
+        }
+
+        /* --- 問題画面の「途中終了／次へ」ボタンを左右に離す --- */
+        .st-key-quiz_exit_wrap {
+            display: flex;
+            justify-content: flex-start;
+        }
+        .st-key-quiz_next_wrap {
+            display: flex;
+            justify-content: flex-end;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_full_title() -> None:
+    """アプリの正式名称を3行に分けて中央に表示します（認証画面・トップ画面用）。"""
+    lines_html = "".join(f"<div>{line}</div>" for line in APP_TITLE_LINES)
+    st.markdown(f'<div class="app-title-full">{lines_html}</div>', unsafe_allow_html=True)
+
+
+def render_short_title() -> None:
+    """アプリの略式名称を1行で中央に表示します（問題画面など、省スペースが必要な場面用）。"""
+    st.markdown(f'<div class="app-title-short">{APP_TITLE_SHORT}</div>', unsafe_allow_html=True)
+
+
+def centered_button(label: str, key: str, **kwargs) -> bool:
+    """
+    中央揃え・幅を統一したボタンを1つ表示するための共通部品(ヘルパー関数)です。
+
+    st.container(key=f"center_wrap_{key}") でボタンを囲むことで、
+    その部分だけに「st-key-center_wrap_◯◯」というCSSクラスが付き、
+    inject_global_css() で定義した中央揃えのスタイルが適用されます。
+
+    戻り値は st.button() と同じで、ボタンが押された直後の再実行時だけ True になります。
+    """
+    with st.container(key=f"center_wrap_{key}"):
+        return st.button(label, key=key, **kwargs)
+
+
 @st.cache_data
 def get_all_questions() -> list[dict]:
     """
@@ -117,7 +284,7 @@ def render_auth_screen() -> None:
     名前と合言葉を入力してもらい、合言葉が正しければ名前をBase64で難読化して
     URLパラメータに付け加え、認証済みの状態にします。
     """
-    st.title("繰り返し解く！ Python3 基礎試験 Webテスト")
+    render_full_title()
     st.subheader("受講者認証")
     st.write("お名前と合言葉を入力してください。")
 
@@ -164,15 +331,7 @@ def get_authenticated_name() -> str | None:
     return utils.decode_name(encoded)
 
 
-def render_header(name: str) -> None:
-    """画面上部に受講者名のバッジを表示します。"""
-    st.title("繰り返し解く！ Python3 基礎試験 Webテスト")
-    # st.success() は緑色の背景で強調表示するための関数です。
-    # f"..." は f文字列で、{name}の部分が実際の変数の値に置き換わります。
-    st.success(f"受講者：{name} さん（読者限定版）")
-
-
-# ── モード選択画面 ────────────────────────────────────────
+# ── モード選択画面(トップ画面) ───────────────────────────────
 def start_quiz(all_questions: list[dict], mode: str, chapter: str | None) -> None:
     """
     選ばれたモードに応じて問題を抽出し、session_stateを初期化して
@@ -208,43 +367,85 @@ def start_quiz(all_questions: list[dict], mode: str, chapter: str | None) -> Non
 
 
 def render_select_screen(all_questions: list[dict]) -> None:
+    """
+    トップ画面(モード選択画面)です。
+    4つの学習モードがそれぞれ大きなボタンになっており、タップするとそのまま
+    出題が始まります（③章指定モードだけは、先に章を選ぶ画面に移動します）。
+    """
     st.subheader("学習モードを選んでください")
-
-    # st.radio() はラジオボタン(1つだけ選べる選択肢)を表示するウィジェットです。
-    # options には内部的な値のリスト(quiz_engine.MODE_EXAMなどの文字列)を渡し、
-    # format_func で「画面に表示するときだけ日本語ラベルに変換する」ようにしています。
-    # こうすることで、画面表示用の文字列と、プログラム内部で使う値を分離できます。
-    selected_mode = st.radio(
-        "モード",
-        options=list(MODE_LABELS.keys()),
-        format_func=lambda m: MODE_LABELS[m],
-        # label_visibility="collapsed" は、上の "モード" というラベル文字列を
-        # 画面上には表示しない(隠す)という設定です。
-        label_visibility="collapsed",
-    )
-
-    # 章指定モードが選ばれているときだけ、章を選ぶプルダウン(selectbox)を追加で表示します。
-    chapter = None
-    if selected_mode == quiz_engine.MODE_CHAPTER:
-        chapters = quiz_engine.get_available_chapters(all_questions)
-        chapter = st.selectbox("章を選択してください", chapters)
 
     # session_state.get("last_wrong_ids") は、まだ一度もテストを終えていない場合は None になります。
     # 「or set()」を付けることで、Noneのときは代わりに空の集合を使うようにしています。
     last_wrong_ids = st.session_state.get("last_wrong_ids") or set()
+    # 前回間違えた問題が無い場合は、④間違い再挑戦モードのボタンを押せなくします。
+    retry_disabled = not last_wrong_ids
 
-    # 間違い再挑戦モードが選ばれていて、かつ前回間違えた問題が無い場合は注意文を表示します。
-    if selected_mode == quiz_engine.MODE_RETRY and not last_wrong_ids:
-        st.warning(
-            "前回のテスト結果がまだありません。先に他のモードで一度テストを受けてください。"
-        )
+    # ① 本番想定モード：タップした瞬間にそのまま40問の出題が始まります。
+    with st.container(key="mode_btn_exam"):
+        if st.button(MODE_LABELS[quiz_engine.MODE_EXAM], key="mode_exam_button", type="primary"):
+            start_quiz(all_questions, quiz_engine.MODE_EXAM, chapter=None)
 
-    # 上と同じ条件のときは、開始ボタン自体も押せないようにします(disabled=True)。
-    start_disabled = selected_mode == quiz_engine.MODE_RETRY and not last_wrong_ids
-    # st.button()は、押されたときだけTrueを返すボタンです。
-    # type="primary" にすると、目立つ色(強調スタイル)のボタンになります。
-    if st.button("テストを開始する", type="primary", disabled=start_disabled):
-        start_quiz(all_questions, selected_mode, chapter)
+    # ② 短時間モード：タップした瞬間にそのまま10問の出題が始まります。
+    with st.container(key="mode_btn_short"):
+        if st.button(MODE_LABELS[quiz_engine.MODE_SHORT], key="mode_short_button", type="primary"):
+            start_quiz(all_questions, quiz_engine.MODE_SHORT, chapter=None)
+
+    # ③ 章指定モード：出題する章を選んでもらう必要があるため、
+    #    まずは「章選択画面」に切り替えるだけにします。
+    with st.container(key="mode_btn_chapter"):
+        if st.button(MODE_LABELS[quiz_engine.MODE_CHAPTER], key="mode_chapter_button", type="primary"):
+            st.session_state["screen"] = "chapter_select"
+            st.rerun()
+
+    # ④ 間違い再挑戦モード：前回間違えた問題が無いときはボタンを無効化します。
+    with st.container(key="mode_btn_retry"):
+        if st.button(
+            MODE_LABELS[quiz_engine.MODE_RETRY],
+            key="mode_retry_button",
+            type="primary",
+            disabled=retry_disabled,
+        ):
+            start_quiz(all_questions, quiz_engine.MODE_RETRY, chapter=None)
+
+    if retry_disabled:
+        st.caption("④間違い再挑戦：前回のテスト結果がまだありません。先に他のモードで一度テストを受けてください。")
+
+
+def render_chapter_select_screen(all_questions: list[dict]) -> None:
+    """
+    ③章指定モードで、実際に出題する章を選ぶ画面です。
+    第1〜14章のボタンを縦に並べ、それぞれ簡単な説明文を表示します。
+    第13章は出題データが存在しない章のため、ボタンを押せないようにしています。
+    """
+    st.subheader("出題する章を選んでください")
+
+    # quiz_engine側で実際に問題データが存在する章の一覧を取得します。
+    # （EXCLUDED_CHAPTERSに含まれる章や、そもそも問題が無い章はここには含まれません）
+    available_chapters = set(quiz_engine.get_available_chapters(all_questions))
+
+    # range(1, 15) は 1, 2, 3, ..., 14 という14個の数値を順に生成します。
+    for chapter_num in range(1, 15):
+        # f"{数値:02d}" で "1" を "01" のように2桁のゼロ埋め文字列に変換します。
+        # 問題データ側の chapter の値（"01"など）と形式を合わせるためです。
+        chapter_code = f"{chapter_num:02d}"
+        description = CHAPTER_DESCRIPTIONS.get(chapter_code, "")
+        label = f"第{chapter_num}章　{description}"
+
+        with st.container(key=f"chapter_btn_{chapter_code}"):
+            if chapter_code == EXCLUDED_CHAPTER_FOR_UI:
+                # 第13章は出題範囲外なので、ボタンを無効化(disabled=True)して押せなくします。
+                st.button(label, key=f"chapter_button_{chapter_code}", disabled=True, width="stretch")
+                st.caption("13章は出題範囲外のため選択できません。")
+            elif chapter_code in available_chapters:
+                if st.button(label, key=f"chapter_button_{chapter_code}", width="stretch"):
+                    start_quiz(all_questions, quiz_engine.MODE_CHAPTER, chapter=chapter_code)
+            else:
+                # 想定外に問題データが無い章があった場合も、念のため押せないようにしておきます。
+                st.button(label, key=f"chapter_button_{chapter_code}", disabled=True, width="stretch")
+
+    if centered_button("トップ画面へ戻る", key="chapter_back_button"):
+        st.session_state["screen"] = "select"
+        st.rerun()
 
 
 # ── 出題画面 ────────────────────────────────────────────
@@ -317,27 +518,37 @@ def render_quiz_screen() -> None:
     # 問題文(コードブロック込み)を表示します。
     render_question_body(item["question"])
 
-    choices = item["choices"]
-    # st.radio()で4つの選択肢を表示します。
-    # options=range(len(choices)) として「0, 1, 2, 3」という番号そのものを選択肢の値にし、
-    # format_func で「画面には choices[番号] の文字列を表示する」ようにしています。
-    # こうすることで、st.radio()の戻り値がそのまま「選んだ選択肢の番号(インデックス)」になり、
-    # 採点時にcorrect_indexと直接比較できます。
-    # index=None にすることで、最初は何も選ばれていない状態からスタートします。
-    # key=f"answer_{item['id']}_{current_index}" は、この部品を一意に識別するための名前です。
-    # 問題ごとに異なるkeyを付けることで、問題が変わったときに前の問題の選択状態が
-    # 引き継がれてしまう(バグの原因になる)のを防いでいます。
-    selected_index = st.radio(
-        "選択肢",
-        options=range(len(choices)),
-        format_func=lambda i: choices[i],
-        index=None,
-        key=f"answer_{item['id']}_{current_index}",
-        label_visibility="collapsed",
-    )
+    # 問題文と選択肢の間に、薄いグレーの区切り線を入れます。
+    st.markdown('<hr class="question-divider">', unsafe_allow_html=True)
 
-    # st.columns(2)で画面を横に2分割し、ボタンを横並びに配置します。
-    col1, col2 = st.columns(2)
+    choices = item["choices"]
+
+    # 選んだ選択肢の番号を覚えておくためのsession_stateのキーです。
+    # 問題のid・出題順(current_index)ごとに異なるキーにすることで、
+    # 別の問題に切り替わったときに前の問題の選択状態が引き継がれてしまう
+    # (バグの原因になる)のを防いでいます。
+    selected_key = f"selected_choice_{item['id']}_{current_index}"
+    # まだ何も選んでいない場合は None になります。
+    selected_index = st.session_state.get(selected_key)
+
+    # A, B, C, D の4枚の「カード」として選択肢を表示します。
+    # st.container(key="choice_area") で囲むことで、この中のボタンだけに
+    # inject_global_css() で定義したカード風のスタイルが適用されます。
+    with st.container(key="choice_area"):
+        for i, choice_text in enumerate(choices):
+            is_selected = selected_index == i
+            # タップして選択中の選択肢だけ type="primary"（目立つ色）にすることで、
+            # どれを選んでいるかが一目で分かるようにしています。
+            if st.button(
+                f"{CHOICE_LETTERS[i]}　{choice_text}",
+                key=f"choice_{item['id']}_{current_index}_{i}",
+                type="primary" if is_selected else "secondary",
+                width="stretch",
+            ):
+                # 選んだ番号をsession_stateに記録し、画面を再描画して
+                # 選んだカードの色が変わった状態を反映させます。
+                st.session_state[selected_key] = i
+                st.rerun()
 
     # 今表示している問題が、出題リストの最後の1問かどうかを判定します。
     # current_indexは0始まりなので、「最後の問題の番号」は total - 1 になります。
@@ -345,30 +556,37 @@ def render_quiz_screen() -> None:
     # 最後の問題かどうかで、次へ進むボタンのラベル文字列を変えています。
     next_label = "採点して結果を見る" if is_last_question else "次の問題へ ▶"
 
-    # with col1: と書くと、そのブロックの中の部品は1列目(左側)に配置されます。
-    with col1:
-        if st.button(next_label, type="primary"):
-            # 選択肢が選ばれていれば(None出なければ)、回答を記録します。
-            # 何も選ばずに次へ進んだ場合は記録されず、grade_answers側で「未回答(不正解扱い)」になります。
-            if selected_index is not None:
-                st.session_state["user_answers"][item["id"]] = selected_index
+    # st.columns(2)で画面を横に2分割し、ボタンを左右に離して配置します。
+    # 誤って意図しないボタンをタップしてしまわないようにするためです。
+    col_exit, col_next = st.columns(2)
 
-            if is_last_question:
-                # 最後の問題だった場合は、そのまま採点処理へ進みます。
+    with col_exit:
+        # 「途中で終了して採点」ボタンは、左詰め（画面の左側）に配置します。
+        # どの問題番号にいても常に押せます。
+        with st.container(key="quiz_exit_wrap"):
+            if st.button("途中で終了して採点", key="quiz_exit_button"):
+                if selected_index is not None:
+                    st.session_state["user_answers"][item["id"]] = selected_index
                 finish_quiz()
-            else:
-                # 最後でなければ、問題番号を1つ進めるだけです。
-                st.session_state["current_index"] += 1
-            # session_stateの変更を画面に反映させるため、再実行します。
-            st.rerun()
+                st.rerun()
 
-    with col2:
-        # 「途中で終了して採点」ボタンは、どの問題番号にいても常に押せます。
-        if st.button("途中で終了して採点"):
-            if selected_index is not None:
-                st.session_state["user_answers"][item["id"]] = selected_index
-            finish_quiz()
-            st.rerun()
+    with col_next:
+        # 「次の問題へ」ボタンは、右詰め（画面の右側）に配置します。
+        with st.container(key="quiz_next_wrap"):
+            if st.button(next_label, key="quiz_next_button", type="primary"):
+                # 選択肢が選ばれていれば(None出なければ)、回答を記録します。
+                # 何も選ばずに次へ進んだ場合は記録されず、grade_answers側で「未回答(不正解扱い)」になります。
+                if selected_index is not None:
+                    st.session_state["user_answers"][item["id"]] = selected_index
+
+                if is_last_question:
+                    # 最後の問題だった場合は、そのまま採点処理へ進みます。
+                    finish_quiz()
+                else:
+                    # 最後でなければ、問題番号を1つ進めるだけです。
+                    st.session_state["current_index"] += 1
+                # session_stateの変更を画面に反映させるため、再実行します。
+                st.rerun()
 
 
 # ── 結果画面 ────────────────────────────────────────────
@@ -429,24 +647,27 @@ def render_result_screen(all_questions: list[dict]) -> None:
     st.table(chapter_rows)
 
     st.write("### 次のアクション")
-    col_a, col_b, col_c = st.columns(3)
 
-    with col_a:
-        # 1問も間違えていない場合は、再挑戦するボタンを押せないようにします。
-        has_wrong = len(result["wrong_ids"]) > 0
-        if st.button("今回間違えた問題だけに再挑戦する", disabled=not has_wrong):
-            # 間違えた問題だけを対象に、もう一度出題を組み立てて「quiz」画面へ進みます。
-            start_quiz(all_questions, quiz_engine.MODE_RETRY, chapter=None)
+    # スマホで見たときに窮屈にならないよう、3つのボタンを横並びではなく
+    # 縦に並べて、それぞれ中央揃えで表示します（centered_button()を使用）。
 
-    with col_b:
-        if st.button("全問題の解説を見る（総復習リスト）"):
-            st.session_state["screen"] = "review"
-            st.rerun()
+    # 1問も間違えていない場合は、再挑戦するボタンを押せないようにします。
+    has_wrong = len(result["wrong_ids"]) > 0
+    if centered_button(
+        "今回間違えた問題だけに再挑戦する",
+        key="result_retry_button",
+        disabled=not has_wrong,
+    ):
+        # 間違えた問題だけを対象に、もう一度出題を組み立てて「quiz」画面へ進みます。
+        start_quiz(all_questions, quiz_engine.MODE_RETRY, chapter=None)
 
-    with col_c:
-        if st.button("トップ画面へ戻る"):
-            reset_to_select_screen()
-            st.rerun()
+    if centered_button("全問題の解説を見る（総復習リスト）", key="result_review_button"):
+        st.session_state["screen"] = "review"
+        st.rerun()
+
+    if centered_button("トップ画面へ戻る", key="result_top_button"):
+        reset_to_select_screen()
+        st.rerun()
 
 
 # ── 総復習リスト画面 ───────────────────────────────────────
@@ -476,7 +697,7 @@ def render_review_screen() -> None:
             # st.info()は青色の背景で、補足情報(ここでは解説文)を目立たせて表示します。
             st.info(item["commentary"])
 
-    if st.button("結果画面に戻る"):
+    if centered_button("結果画面に戻る", key="review_back_button"):
         st.session_state["screen"] = "result"
         st.rerun()
 
@@ -485,7 +706,9 @@ def render_review_screen() -> None:
 def main() -> None:
     # st.set_page_config()は、ブラウザのタブに表示されるタイトルやアイコンを設定します。
     # この関数は必ずファイルの中で最初に呼ばれるStreamlitの命令である必要があります。
-    st.set_page_config(page_title="繰り返し解く！ Python3 基礎試験 Webテスト", page_icon="🐍")
+    st.set_page_config(page_title="繰り返し解く！Python3基礎試験400問", page_icon="🐍")
+    # アプリ全体で使う見た目調整用のCSSを埋め込みます。
+    inject_global_css()
 
     # URLパラメータから、認証済みの受講者名を取得しようとします(未認証ならNone)。
     name = get_authenticated_name()
@@ -503,19 +726,29 @@ def main() -> None:
         # return でこの関数の実行をここで終了します(この先の画面表示処理には進みません)。
         return
 
-    # ここに到達した時点で、認証は済んでいることが保証されています。
-    render_header(name)
-
     all_questions = get_all_questions()
     # st.session_state.setdefault("screen", "select") は、
     # 「screenというキーがまだ無ければ"select"を入れる、既にあればその値をそのまま使う」という意味です。
     # これにより、アプリを開いた直後は自動的に「モード選択画面」からスタートします。
     screen = st.session_state.setdefault("screen", "select")
 
+    # 画面によって、ヘッダーに表示するアプリ名を切り替えます。
+    # トップ画面(select)と章選択画面(chapter_select)ではフルネームの3行表示、
+    # それ以外(quiz/result/review)では省スペースな略式の1行表示にしています。
+    if screen in ("select", "chapter_select"):
+        render_full_title()
+    else:
+        render_short_title()
+
+    # st.success() は緑色の背景で強調表示するための関数です。
+    st.success(f"受講者：{name} さん（読者限定版）")
+
     # 現在の画面(screen)の値に応じて、対応する描画関数を呼び出します。
     # これがこのアプリの「画面切り替え」の中心となる分岐です。
     if screen == "select":
         render_select_screen(all_questions)
+    elif screen == "chapter_select":
+        render_chapter_select_screen(all_questions)
     elif screen == "quiz":
         render_quiz_screen()
     elif screen == "result":
