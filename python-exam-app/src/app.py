@@ -29,6 +29,10 @@ import re
 import time
 # Path: OSの違い(Windows/Mac/Linux)を気にせずファイルパスを組み立てられる標準ライブラリです。
 from pathlib import Path
+# quote: 文字列をURLに埋め込める形式に変換(エンコード)するための標準ライブラリです。
+# JavaScriptのencodeURIComponent()と同じ役割を果たします。
+# safe=""を指定することで、"/"なども含めてほぼすべての記号を変換対象にしています。
+from urllib.parse import quote
 
 # streamlit: このWebアプリの画面(UI)を作るためのライブラリです。
 # 「as st」と書くことで、以降は streamlit ではなく st という短い名前で呼び出せます。
@@ -39,9 +43,12 @@ import quiz_engine
 import utils
 
 # ── 定数 ──────────────────────────────────────────────
-# 認証に使う合言葉。実運用では外部に漏れないよう管理する必要がありますが、
-# Phase 1では要件通りシンプルな固定文字列にしています。
-PASSPHRASE = "python2026"
+# 認証に使う合言葉は「秘密情報(Secrets)」として管理します。コードに直接
+# 書かないことで、GitHubにアップロードしても合言葉が他人に見えないように
+# しています。ローカルでは .streamlit/secrets.toml から、Streamlit Cloud上
+# では管理画面のSecrets設定から、それぞれ自動的に読み込まれます。
+# (secrets.tomlが無い場合は、Streamlitが分かりやすいエラー画面を出してくれます)
+PASSPHRASE = st.secrets["passphrase"]
 
 # 問題データ(JSON)のファイルパス。
 # __file__ は「このapp.pyファイル自身のパス」を表すので、そこから
@@ -93,6 +100,17 @@ EXCLUDED_CHAPTER_FOR_UI = "13"
 # 普通のアルファベット "A" ではなく "Ⓐ" を使うことで、
 # HTMLを使わなくても選択肢がバッジ（円形のラベル）のように見えるようにしています。
 CHOICE_LETTERS = ["Ⓐ", "Ⓑ", "Ⓒ", "Ⓓ"]
+
+# 「AIヒント」ボタンから、ChatGPTに渡すプロンプトのひな形です。
+# {question} の部分に、実際に表示中の問題文がそのまま挿入されます。
+# 答えを直接教えず、考え方のヒントだけをもらうよう指示しています。
+AI_HINT_PROMPT_TEMPLATE = """以下のPython3エンジニア認定基礎試験の問題について考えています。
+答えそのものは言わずに、正解を導くための考え方や注目すべきポイントの「ヒント」を教えてください。
+
+【問題】
+{question}
+
+この問題に対するヒントをください。"""
 
 
 # ── 見た目(CSS)の設定 ───────────────────────────────────
@@ -269,6 +287,24 @@ def inject_global_css() -> None:
             width: auto;
         }
 
+        /* --- 「AIヒント」ボタン（問題文と選択肢の間・右寄せ） ---
+           st.link_button() が生成する要素は st.button() とは異なり
+           data-testid="stLinkButton" が付きます（stButtonではありません）。
+           このボタンは補助的な機能なので、他の大きな操作ボタンとは違い、
+           あえて共通ルール(117行目付近)を適用させず、Streamlit標準の
+           コンパクトなサイズのまま、右寄せにするだけにしています。 */
+        .st-key-quiz_hint_wrap {
+            display: flex;
+            /* StreamlitのstVerticalBlockはデフォルトでflex-direction:columnに
+               なっているため、これを明示的にrow(横並び)に上書きしないと、
+               justify-content:flex-endが縦方向に効いてしまい、
+               左右の位置には反映されません。 */
+            flex-direction: row;
+            justify-content: flex-end;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -306,6 +342,19 @@ def centered_button(label: str, key: str, **kwargs) -> bool:
     kwargs.setdefault("width", "stretch")
     with st.container(key=f"center_wrap_{key}"):
         return st.button(label, key=key, **kwargs)
+
+
+def build_chatgpt_url(prompt_text: str) -> str:
+    """
+    ChatGPTに渡したいプロンプト文字列を受け取り、そのプロンプトが
+    入力欄にあらかじめセットされた状態でChatGPTを開けるURLを組み立てます。
+
+    quote(prompt_text, safe="") は、JavaScriptのencodeURIComponent()と
+    同じ役割の変換です。改行や日本語、記号などをそのままURLに含めることは
+    できないため、"%E3%81%82"のような安全な形式に変換(エンコード)しています。
+    """
+    encoded_prompt = quote(prompt_text, safe="")
+    return f"https://chatgpt.com/?q={encoded_prompt}"
 
 
 @st.cache_data
@@ -612,6 +661,15 @@ def render_quiz_screen() -> None:
 
     # 問題文(コードブロック込み)を表示します。
     render_question_body(item["question"])
+
+    # 「AIヒント」ボタンを、問題文と選択肢の間・右寄せで配置します。
+    # st.link_button() は、クリックすると指定したURLを新しいタブで開く
+    # ボタンです。JavaScriptのwindow.open()を使わなくても、Streamlitの
+    # 標準機能だけで「クリック→新規タブでページを開く」を実現できます。
+    hint_prompt = AI_HINT_PROMPT_TEMPLATE.format(question=item["question"])
+    hint_url = build_chatgpt_url(hint_prompt)
+    with st.container(key="quiz_hint_wrap"):
+        st.link_button("AIヒント", hint_url, icon="💡")
 
     # 問題文と選択肢の間に、薄いグレーの区切り線を入れます。
     st.markdown('<hr class="question-divider">', unsafe_allow_html=True)
