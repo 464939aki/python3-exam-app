@@ -114,11 +114,13 @@ def inject_global_css() -> None:
         <style>
         /* ボタン全体を、スマホでタップしやすい見た目に調整します
            （角を丸く、文字を少し大きく、上下に余裕を持たせる）。 */
-        div[data-testid="stButton"] > button {
+        div[data-testid="stButton"] > button,
+        div[data-testid="stFormSubmitButton"] > button {
             border-radius: 14px;
             padding: 0.7em 1em;
             font-size: 1.02rem;
-            min-height: 2.6em;
+            min-height: 4em;    /* ボタンの縦サイズ */
+            margin-top: 1.0rem;   /* ← これがボタンの「上」の余白 */
         }
 
         /* --- アプリ名（フルネーム・3行表示） --- */
@@ -172,6 +174,44 @@ def inject_global_css() -> None:
         [class*="st-key-chapter_btn_"] {
             margin-bottom: 0.7rem;
         }
+        /* 選択肢カードと同じ理由(117行目付近を参照)で、Streamlitのボタンは
+           内部的に文章のかたまりを中央に置く設定になっているため、
+           ボタン内部のすべての要素(*)を左揃えに上書きします。 */
+        [class*="st-key-chapter_btn_"] div[data-testid="stButton"] > button,
+        [class*="st-key-chapter_btn_"] div[data-testid="stButton"] > button * {
+            justify-content: flex-start;
+        }
+        /* 「第◯章　」の部分の表示幅を実際に計測すると、
+           1桁の章（第1〜9章）は約3.5em、2桁の章（第10〜14章）は約4emでした。
+           桁数によって「第◯章　」の幅が変わるため、1桁グループと2桁グループで
+           別々のぶら下げインデント量を指定しています（考え方は選択肢カードの
+           ぶら下げインデントと同じです。202行目付近を参照）。 */
+        [class*="st-key-chapter_btn_01"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_02"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_03"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_04"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_05"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_06"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_07"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_08"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_09"] [data-testid="stMarkdownContainer"] p {
+            padding-left: 3.5em;
+            text-indent: -3.5em;
+            margin: 0;
+        }
+        [class*="st-key-chapter_btn_10"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_11"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_12"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_13"] [data-testid="stMarkdownContainer"] p,
+        [class*="st-key-chapter_btn_14"] [data-testid="stMarkdownContainer"] p {
+            padding-left: 4em;
+            text-indent: -4em;
+            margin: 0;
+        }
+        /* 第13章の「選択できません」という注意書きを右揃えにします。 */
+        [class*="st-key-chapter_btn_13"] [data-testid="stCaptionContainer"] {
+            text-align: right;
+        }
 
         /* --- 選択肢カード（A/B/C/D） --- */
         .st-key-choice_area div[data-testid="stButton"] {
@@ -183,17 +223,52 @@ def inject_global_css() -> None:
             white-space: normal;
             line-height: 1.55;
             padding: 0.9em 1.1em;
+            /* 全ボタン共通のmargin-top(117行目付近)を、選択肢カードだけ上書きします。
+               ここの数値だけを変えれば、他のボタンに影響を与えずに
+               選択肢カードの「上」の余白だけを調整できます。 */
+            margin-top: 0;
         }
-
-        /* --- 問題画面の「途中終了／次へ」ボタンを左右に離す --- */
-        .st-key-quiz_exit_wrap {
-            display: flex;
+        /* Streamlitのボタンは内部的に「文章のかたまりを中央に置く」という
+           display:flex; justify-content:center; が指定されています。
+           そのため、text-align:leftを指定するだけでは、短い選択肢の文章
+           全体が中央寄りに見えてしまいます。ボタン内部のすべての要素(*)に
+           対してjustify-content:flex-startを指定し、これを上書きします。 */
+        .st-key-choice_area div[data-testid="stButton"] > button,
+        .st-key-choice_area div[data-testid="stButton"] > button * {
             justify-content: flex-start;
         }
-        .st-key-quiz_next_wrap {
-            display: flex;
-            justify-content: flex-end;
+        /* 選択肢の文章(段落)に「ぶら下げインデント」を設定します。
+           padding-leftで段落全体の左に2em分の余白を確保しておき、
+           text-indentに同じ数値のマイナス値を指定することで、
+           1行目だけをその余白の分だけ左に戻します。
+           「Ⓐ　」(丸文字+全角スペース)の実際の表示幅を計測したところ
+           ちょうど2em分だったため、1行目は余白の位置までせり出して
+           Ⓐの文字がぴったり収まり、2行目以降は余白の位置(＝1行目の
+           文章の開始位置)で揃うようになります。 */
+        .st-key-choice_area div[data-testid="stButton"] [data-testid="stMarkdownContainer"] p {
+            padding-left: 2em;
+            text-indent: -2em;
+            margin: 0;
         }
+
+        /* --- 問題画面の「途中終了／次へ」ボタンを1行に並べ、左右に離す ---
+           st.columns()は画面が狭いと縦積みに変わってしまうため使わず、
+           1つの箱(st.container)にボタン2つをそのまま入れて、
+           このFlexboxで横並び・両端揃えにしています。 */
+        .st-key-quiz_actions_row {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        /* 2つのボタンは、行いっぱいに広がらず、文字の長さに合った
+           自然な幅のままにしておきます（stretchにすると2つとも
+           半分ずつに広がってしまい、両端揃えの意味が無くなるため）。 */
+        .st-key-quiz_actions_row div[data-testid="stButton"] > button {
+            width: auto;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -219,8 +294,16 @@ def centered_button(label: str, key: str, **kwargs) -> bool:
     その部分だけに「st-key-center_wrap_◯◯」というCSSクラスが付き、
     inject_global_css() で定義した中央揃えのスタイルが適用されます。
 
+    kwargs.setdefault("width", "stretch") について：
+    st.button() の幅は、何も指定しないと文字の長さに合わせた幅になり、
+    ボタンごとにバラバラになってしまいます。ここで width="stretch" を
+    デフォルト値として設定しておくことで、centered_button() を使った
+    ボタンはすべて、囲んでいるcontainer(幅はCSSで統一済み)いっぱいに
+    広がるようになり、複数のボタンの横幅が自動的に揃います。
+
     戻り値は st.button() と同じで、ボタンが押された直後の再実行時だけ True になります。
     """
+    kwargs.setdefault("width", "stretch")
     with st.container(key=f"center_wrap_{key}"):
         return st.button(label, key=key, **kwargs)
 
@@ -293,11 +376,13 @@ def render_auth_screen() -> None:
     # フォーム内の送信ボタン(form_submit_button)が押されたときに、
     # まとめて値が確定する仕組みになっています（入力するたびに画面全体が再実行されるのを防げます）。
     with st.form("auth_form"):
-        name = st.text_input("お名前")
+        name = st.text_input("お名前（ニックネーム可）")
         # type="password" にすると、入力内容が「●●●」のように隠されて表示されます。
-        passphrase = st.text_input("合言葉", type="password")
+        passphrase = st.text_input("合言葉（本に記載）", type="password")
         # フォーム専用の送信ボタン。これが押されたときだけ True が返ります。
-        submitted = st.form_submit_button("認証する")
+        # ボタンをcontainerで囲み、"auth_submit_wrap"という名前のCSSクラスを付けます。
+        with st.container(key="auth_submit_wrap"):
+            submitted = st.form_submit_button("認証する", width="stretch")
 
     # フォームが送信された(ボタンが押された)ときだけ、以下の判定処理を行います。
     if submitted:
@@ -381,19 +466,28 @@ def render_select_screen(all_questions: list[dict]) -> None:
     retry_disabled = not last_wrong_ids
 
     # ① 本番想定モード：タップした瞬間にそのまま40問の出題が始まります。
+    # width="stretch" を指定することで、ボタンの幅が文字の長さに左右されず、
+    # 囲んでいるcontainer(幅はCSS側で統一済み)いっぱいに広がるようにしています。
+    # これにより、①〜④のボタンの横幅が完全に揃います。
     with st.container(key="mode_btn_exam"):
-        if st.button(MODE_LABELS[quiz_engine.MODE_EXAM], key="mode_exam_button", type="primary"):
+        if st.button(
+            MODE_LABELS[quiz_engine.MODE_EXAM], key="mode_exam_button", type="primary", width="stretch"
+        ):
             start_quiz(all_questions, quiz_engine.MODE_EXAM, chapter=None)
 
     # ② 短時間モード：タップした瞬間にそのまま10問の出題が始まります。
     with st.container(key="mode_btn_short"):
-        if st.button(MODE_LABELS[quiz_engine.MODE_SHORT], key="mode_short_button", type="primary"):
+        if st.button(
+            MODE_LABELS[quiz_engine.MODE_SHORT], key="mode_short_button", type="primary", width="stretch"
+        ):
             start_quiz(all_questions, quiz_engine.MODE_SHORT, chapter=None)
 
     # ③ 章指定モード：出題する章を選んでもらう必要があるため、
     #    まずは「章選択画面」に切り替えるだけにします。
     with st.container(key="mode_btn_chapter"):
-        if st.button(MODE_LABELS[quiz_engine.MODE_CHAPTER], key="mode_chapter_button", type="primary"):
+        if st.button(
+            MODE_LABELS[quiz_engine.MODE_CHAPTER], key="mode_chapter_button", type="primary", width="stretch"
+        ):
             st.session_state["screen"] = "chapter_select"
             st.rerun()
 
@@ -404,6 +498,7 @@ def render_select_screen(all_questions: list[dict]) -> None:
             key="mode_retry_button",
             type="primary",
             disabled=retry_disabled,
+            width="stretch",
         ):
             start_quiz(all_questions, quiz_engine.MODE_RETRY, chapter=None)
 
@@ -435,7 +530,7 @@ def render_chapter_select_screen(all_questions: list[dict]) -> None:
             if chapter_code == EXCLUDED_CHAPTER_FOR_UI:
                 # 第13章は出題範囲外なので、ボタンを無効化(disabled=True)して押せなくします。
                 st.button(label, key=f"chapter_button_{chapter_code}", disabled=True, width="stretch")
-                st.caption("13章は出題範囲外のため選択できません。")
+                st.caption("※13章は出題範囲外のため選択できません")
             elif chapter_code in available_chapters:
                 if st.button(label, key=f"chapter_button_{chapter_code}", width="stretch"):
                     start_quiz(all_questions, quiz_engine.MODE_CHAPTER, chapter=chapter_code)
@@ -556,37 +651,36 @@ def render_quiz_screen() -> None:
     # 最後の問題かどうかで、次へ進むボタンのラベル文字列を変えています。
     next_label = "採点して結果を見る" if is_last_question else "次の問題へ ▶"
 
-    # st.columns(2)で画面を横に2分割し、ボタンを左右に離して配置します。
-    # 誤って意図しないボタンをタップしてしまわないようにするためです。
-    col_exit, col_next = st.columns(2)
-
-    with col_exit:
-        # 「途中で終了して採点」ボタンは、左詰め（画面の左側）に配置します。
+    # st.columns()は画面の横幅が狭い(スマホサイズ)場合、自動的に縦積みの
+    # レイアウトに変わってしまう仕様があるため、ここでは使いません。
+    # 代わりに、st.container(key="quiz_actions_row")というひとつの箱に
+    # 2つのボタンをそのまま並べて入れ、CSS側でその箱をFlexboxにして
+    # (inject_global_css()内の .st-key-quiz_actions_row を参照)、
+    # 「左端に1つ・右端に1つ」を常に1行で実現しています。
+    with st.container(key="quiz_actions_row"):
+        # 「途中で終了して採点」ボタンは、左端に配置します。
         # どの問題番号にいても常に押せます。
-        with st.container(key="quiz_exit_wrap"):
-            if st.button("途中で終了して採点", key="quiz_exit_button"):
-                if selected_index is not None:
-                    st.session_state["user_answers"][item["id"]] = selected_index
+        if st.button("途中で終了して採点", key="quiz_exit_button"):
+            if selected_index is not None:
+                st.session_state["user_answers"][item["id"]] = selected_index
+            finish_quiz()
+            st.rerun()
+
+        # 「次の問題へ」ボタンは、右端に配置します。
+        if st.button(next_label, key="quiz_next_button", type="primary"):
+            # 選択肢が選ばれていれば(None出なければ)、回答を記録します。
+            # 何も選ばずに次へ進んだ場合は記録されず、grade_answers側で「未回答(不正解扱い)」になります。
+            if selected_index is not None:
+                st.session_state["user_answers"][item["id"]] = selected_index
+
+            if is_last_question:
+                # 最後の問題だった場合は、そのまま採点処理へ進みます。
                 finish_quiz()
-                st.rerun()
-
-    with col_next:
-        # 「次の問題へ」ボタンは、右詰め（画面の右側）に配置します。
-        with st.container(key="quiz_next_wrap"):
-            if st.button(next_label, key="quiz_next_button", type="primary"):
-                # 選択肢が選ばれていれば(None出なければ)、回答を記録します。
-                # 何も選ばずに次へ進んだ場合は記録されず、grade_answers側で「未回答(不正解扱い)」になります。
-                if selected_index is not None:
-                    st.session_state["user_answers"][item["id"]] = selected_index
-
-                if is_last_question:
-                    # 最後の問題だった場合は、そのまま採点処理へ進みます。
-                    finish_quiz()
-                else:
-                    # 最後でなければ、問題番号を1つ進めるだけです。
-                    st.session_state["current_index"] += 1
-                # session_stateの変更を画面に反映させるため、再実行します。
-                st.rerun()
+            else:
+                # 最後でなければ、問題番号を1つ進めるだけです。
+                st.session_state["current_index"] += 1
+            # session_stateの変更を画面に反映させるため、再実行します。
+            st.rerun()
 
 
 # ── 結果画面 ────────────────────────────────────────────
@@ -645,8 +739,6 @@ def render_result_screen(all_questions: list[dict]) -> None:
         )
     # st.table()に「辞書のリスト」を渡すと、キーを列見出しにした表を自動で作ってくれます。
     st.table(chapter_rows)
-
-    st.write("### 次のアクション")
 
     # スマホで見たときに窮屈にならないよう、3つのボタンを横並びではなく
     # 縦に並べて、それぞれ中央揃えで表示します（centered_button()を使用）。
